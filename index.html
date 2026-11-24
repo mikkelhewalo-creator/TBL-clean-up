@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Clean and reorganise Excel workbooks locally in your browser.">
+  <title>ExcelColumnSwapper</title>
+
+  <!-- ExcelJS: reads and writes XLSX workbooks with cell styles. -->
+  <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+  <!-- SheetJS: used only to read legacy XLS files before converting them to XLSX. -->
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #182230;
+      --muted: #667085;
+      --line: #d9e0e8;
+      --blue: #175cd3;
+      --blue-dark: #1849a9;
+      --pale: #f4f7fb;
+      --green: #067647;
+      --red: #b42318;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: #f4f7fb;
+      color: var(--ink);
+      font-family: Segoe UI, Arial, sans-serif;
+    }
+    .page { width: min(760px, calc(100% - 32px)); margin: 48px auto; }
+    .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
+    .brand-icon {
+      width: 46px; height: 46px; display: grid; place-items: center;
+      border-radius: 12px; background: #e7f0ff; color: var(--blue); font-size: 25px;
+    }
+    h1 { margin: 0; font-size: clamp(27px, 5vw, 38px); letter-spacing: -1px; }
+    .subtitle { color: var(--muted); margin: 8px 0 26px; line-height: 1.55; }
+    .panel {
+      background: white; border: 1px solid var(--line); border-radius: 18px;
+      padding: 26px; box-shadow: 0 8px 28px rgba(16, 24, 40, .06);
+    }
+    .dropzone {
+      border: 2px dashed #aabbd1; border-radius: 14px; padding: 34px 18px;
+      text-align: center; background: #fbfdff; transition: .15s ease;
+    }
+    .dropzone.dragover { border-color: var(--blue); background: #eff6ff; }
+    .upload-icon { font-size: 34px; margin-bottom: 8px; }
+    .dropzone strong { display: block; font-size: 17px; margin-bottom: 7px; }
+    .dropzone p { color: var(--muted); margin: 0 0 16px; font-size: 14px; }
+    input[type=file] { display: none; }
+    button, .file-button {
+      border: 0; border-radius: 10px; padding: 12px 18px; font-size: 15px;
+      font-weight: 600; cursor: pointer; font-family: inherit;
+    }
+    .file-button, .primary { background: var(--blue); color: white; }
+    .file-button:hover, .primary:hover { background: var(--blue-dark); }
+    button:disabled { opacity: .48; cursor: not-allowed; }
+    .selected {
+      display: none; align-items: center; gap: 10px; margin-top: 16px;
+      border: 1px solid var(--line); border-radius: 10px; padding: 12px;
+      background: white; overflow-wrap: anywhere;
+    }
+    .selected.visible { display: flex; }
+    .selected .file-name { font-weight: 600; }
+    .selected .file-size { color: var(--muted); font-size: 12px; margin-top: 3px; }
+    .actions { display: flex; gap: 10px; margin-top: 18px; }
+    .primary { flex: 1; }
+    .secondary { background: #eef2f6; color: #344054; }
+    .status {
+      display: none; margin-top: 18px; padding: 13px 14px; border-radius: 10px;
+      font-size: 14px; line-height: 1.5; white-space: pre-wrap;
+    }
+    .status.visible { display: block; }
+    .status.info { color: #1849a9; background: #eff8ff; }
+    .status.success { color: var(--green); background: #ecfdf3; }
+    .status.error { color: var(--red); background: #fef3f2; }
+    .summary { margin-top: 12px; font-size: 13px; color: #344054; }
+    .rules { margin-top: 24px; border-top: 1px solid var(--line); padding-top: 20px; }
+    .rules h2 { font-size: 15px; margin: 0 0 10px; }
+    .rules ul { margin: 0; padding-left: 20px; color: #475467; font-size: 13px; line-height: 1.8; }
+    .privacy { color: var(--muted); font-size: 12px; text-align: center; margin: 18px 4px 0; line-height: 1.5; }
+    .footer { color: #98a2b3; font-size: 12px; text-align: center; margin-top: 22px; }
+    @media (max-width: 520px) {
+      .page { margin: 25px auto; }
+      .panel { padding: 17px; }
+      .actions { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <div class="brand">
+      <div class="brand-icon" aria-hidden="true">▦</div>
+      <div>
+        <h1>ExcelColumnSwapper</h1>
+        <div style="color:#667085;font-size:13px;margin-top:3px">Excel workbook cleanup tool</div>
+      </div>
+    </div>
+
+    <p class="subtitle">
+      Upload an Excel workbook, let ExcelColumnSwapper reorganise and clean it,
+      then download the updated workbook.
+    </p>
+
+    <section class="panel">
+      <div class="dropzone" id="dropzone">
+        <div class="upload-icon" aria-hidden="true">📄</div>
+        <strong>Drop your Excel file here</strong>
+        <p>or choose a file from your computer (.xlsx or .xls)</p>
+        <label class="file-button" for="fileInput">Choose Excel file</label>
+        <input id="fileInput" type="file"
+               accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel">
+      </div>
+
+      <div class="selected" id="selectedFile">
+        <div aria-hidden="true">📊</div>
+        <div style="min-width:0;flex:1">
+          <div class="file-name" id="fileName"></div>
+          <div class="file-size" id="fileSize"></div>
+        </div>
+        <button class="secondary" id="removeFile" type="button" title="Remove selected file">✕</button>
+      </div>
+
+      <div class="actions">
+        <button class="primary" id="processButton" type="button" disabled>Process workbook</button>
+        <button class="secondary" id="resetButton" type="button">Reset</button>
+      </div>
+
+      <div class="status" id="status" role="status" aria-live="polite"></div>
+      <div class="summary" id="summary"></div>
+
+      <div class="rules">
+        <h2>What the tool does</h2>
+        <ul>
+          <li>Keeps worksheets whose first row contains both “Mængde” and “Enhed”.</li>
+          <li>Deletes columns whose first-row header contains “Pris” or “Indeks”.</li>
+          <li>Swaps the Enhed and Mængde columns when Enhed is to the left.</li>
+          <li>Deletes qualifying empty or incomplete rows.</li>
+          <li>Removes cell background fills and conditional formatting.</li>
+          <li>Makes rows bold when column A has a value and columns B and C are blank.</li>
+          <li>Downloads the result as a new .xlsx file.</li>
+        </ul>
+      </div>
+    </section>
+
+    <p class="privacy">
+      Your workbook is processed locally in your browser. It is not uploaded to this website or a server.
+      For best preservation of formatting, use .xlsx files. Legacy .xls files are converted and may lose
+      some formatting and workbook features.
+    </p>
+    <div class="footer">ExcelColumnSwapper · Runs in your browser</div>
+  </main>
+
+  <script>
+    "use strict";
+
+    const fileInput = document.getElementById("fileInput");
+    const dropzone = document.getElementById("dropzone");
+    const selectedFile = document.getElementById("selectedFile");
+    const fileName = document.getElementById("fileName");
+    const fileSize = document.getElementById("fileSize");
+    const processButton = document.getElementById("processButton");
+    const resetButton = document.getElementById("resetButton");
+    const removeFileButton = document.getElementById("removeFile");
+    const statusBox = document.getElementById("status");
+    const summaryBox = document.getElementById("summary");
+
+    let chosenFile = null;
+
+    function showStatus(message, type = "info") {
+      statusBox.textContent = message;
+      statusBox.className = `status visible ${type}`;
+    }
+
+    function clearStatus() {
+      statusBox.textContent = "";
+      statusBox.className = "status";
+      summaryBox.textContent = "";
+    }
+
+    function formatBytes(bytes) {
+      if (bytes < 1024) return `${bytes} bytes`;
+      if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+      return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+    }
+
+    function setFile(file) {
+      clearStatus();
+      if (!file) return;
+      const extension = file.name.split(".").pop().toLowerCase();
+      if (!["xlsx", "xls"].includes(extension)) {
+        showStatus("Please choose an .xlsx or .xls file.", "error");
+        return;
+      }
+      chosenFile = file;
+      fileName.textContent = file.name;
+      fileSize.textContent = formatBytes(file.size);
+      selectedFile.classList.add("visible");
+      processButton.disabled = false;
+    }
+
+    function resetSelection() {
+      chosenFile = null;
+      fileInput.value = "";
+      selectedFile.classList.remove("visible");
+      processButton.disabled = true;
+      clearStatus();
+    }
+
+    fileInput.addEventListener("change", () => setFile(fileInput.files[0]));
+    removeFileButton.addEventListener("click", resetSelection);
+    resetButton.addEventListener("click", resetSelection);
+
+    dropzone.addEventListener("dragover", event => {
+      event.preventDefault();
+      dropzone.classList.add("dragover");
+    });
+    dropzone.addEventListener("dragleave", () => dropzone.classList.remove("dragover"));
+    dropzone.addEventListener("drop", event => {
+      event.preventDefault();
+      dropzone.classList.remove("dragover");
+      setFile(event.dataTransfer.files[0]);
+    });
+
+    function isBlank(value) {
+      return value === null || value === undefined ||
+        (typeof value === "string" && value.trim() === "");
+    }
+
+    function cellText(value) {
+      if (value === null || value === undefined) return "";
+      if (value instanceof Date) return value.toISOString();
+      if (typeof value === "object") {
+        if (Array.isArray(value.richText)) return value.richText.map(part => part.text || "").join("");
+        if (value.text !== undefined) return String(value.text);
+        if (value.result !== undefined) return String(value.result);
+        return "";
+      }
+      return String(value);
+    }
+
+    function findHeaderColumns(ws) {
+      let quantityCol = null;
+      let unitCol = null;
+      for (let col = 1; col <= ws.columnCount; col++) {
+        const text = cellText(ws.getRow(1).getCell(col).value).toLocaleLowerCase();
+        if (quantityCol === null && text.includes("mængde")) quantityCol = col;
+        if (unitCol === null && text.includes("enhed")) unitCol = col;
+      }
+      return { quantityCol, unitCol };
+    }
+
+    function hasRequiredHeaders(ws) {
+      const found = findHeaderColumns(ws);
+      return found.quantityCol !== null && found.unitCol !== null;
+    }
+
+    function removePriceAndIndexColumns(ws) {
+      const columnsToDelete = [];
+      for (let col = 1; col <= ws.columnCount; col++) {
+        const header = cellText(ws.getRow(1).getCell(col).value).toLocaleLowerCase();
+        if (header.includes("pris") || header.includes("indeks")) {
+          columnsToDelete.push(col);
+        }
+      }
+      columnsToDelete.sort((a, b) => b - a).forEach(col => ws.spliceColumns(col, 1));
+      return columnsToDelete.length;
+    }
+
+    function cloneValue(value) {
+      if (value === null || value === undefined || typeof value !== "object") return value;
+      if (value instanceof Date) return new Date(value.getTime());
+      if (typeof structuredClone === "function") {
+        try { return structuredClone(value); } catch (_) {}
+      }
+      return JSON.parse(JSON.stringify(value));
+    }
+
+    function cloneStyle(style) {
+      if (!style || typeof style !== "object") return {};
+      if (typeof structuredClone === "function") {
+        try { return structuredClone(style); } catch (_) {}
+      }
+      return JSON.parse(JSON.stringify(style));
+    }
+
+    function swapColumns(ws, col1, col2) {
+      const firstColumn = ws.getColumn(col1);
+      const secondColumn = ws.getColumn(col2);
+      const firstProperties = {
+        width: firstColumn.width, hidden: firstColumn.hidden,
+        outlineLevel: firstColumn.outlineLevel, style: cloneStyle(firstColumn.style)
+      };
+      const secondProperties = {
+        width: secondColumn.width, hidden: secondColumn.hidden,
+        outlineLevel: secondColumn.outlineLevel, style: cloneStyle(secondColumn.style)
+      };
+
+      const maxRow = Math.max(ws.rowCount, 1);
+      for (let row = 1; row <= maxRow; row++) {
+        const a = ws.getRow(row).getCell(col1);
+        const b = ws.getRow(row).getCell(col2);
+
+        const aValue = cloneValue(a.value);
+        const bValue = cloneValue(b.value);
+        const aStyle = cloneStyle(a.style);
+        const bStyle = cloneStyle(b.style);
+        const aNote = cloneValue(a.note);
+        const bNote = cloneValue(b.note);
+        const aValidation = cloneValue(a.dataValidation);
+        const bValidation = cloneValue(b.dataValidation);
+
+        a.value = bValue;
+        b.value = aValue;
+        a.style = bStyle;
+        b.style = aStyle;
+        a.note = bNote;
+        b.note = aNote;
+        if (bValidation) a.dataValidation = bValidation;
+        else a.dataValidation = undefined;
+        if (aValidation) b.dataValidation = aValidation;
+        else b.dataValidation = undefined;
+      }
+
+      firstColumn.width = secondProperties.width;
+      firstColumn.hidden = secondProperties.hidden;
+      firstColumn.outlineLevel = secondProperties.outlineLevel;
+      firstColumn.style = secondProperties.style;
+
+      secondColumn.width = firstProperties.width;
+      secondColumn.hidden = firstProperties.hidden;
+      secondColumn.outlineLevel = firstProperties.outlineLevel;
+      secondColumn.style = firstProperties.style;
+    }
+
+    function deleteQualifyingRows(ws) {
+      let deleted = 0;
+      for (let rowNumber = ws.rowCount; rowNumber >= 2; rowNumber--) {
+        const row = ws.getRow(rowNumber);
+        const a = row.getCell(1).value;
+        const b = row.getCell(2).value;
+        const c = row.getCell(3).value;
+        const deleteBecauseBButNoC = !isBlank(b) && isBlank(c);
+        const deleteBecauseABCBlank = isBlank(a) && isBlank(b) && isBlank(c);
+        if (deleteBecauseBButNoC || deleteBecauseABCBlank) {
+          ws.spliceRows(rowNumber, 1);
+          deleted++;
+        }
+      }
+      return deleted;
+    }
+
+    function removeFillsAndConditionalFormatting(ws) {
+      const maxRow = Math.max(ws.rowCount, 1);
+      const maxCol = Math.max(ws.columnCount, 1);
+      for (let row = 1; row <= maxRow; row++) {
+        for (let col = 1; col <= maxCol; col++) {
+          const cell = ws.getRow(row).getCell(col);
+          cell.fill = { type: "pattern", pattern: "none" };
+        }
+      }
+      if (Array.isArray(ws.conditionalFormattings)) {
+        ws.conditionalFormattings = [];
+      }
+    }
+
+    function highlightSpecialRows(ws) {
+      let highlighted = 0;
+      const maxCol = Math.max(ws.columnCount, 1);
+      for (let rowNumber = 2; rowNumber <= ws.rowCount; rowNumber++) {
+        const row = ws.getRow(rowNumber);
+        const a = row.getCell(1).value;
+        const b = row.getCell(2).value;
+        const c = row.getCell(3).value;
+        if (!isBlank(a) && isBlank(b) && isBlank(c)) {
+          for (let col = 1; col <= maxCol; col++) {
+            const cell = row.getCell(col);
+            cell.font = { ...(cell.font || {}), bold: true };
+          }
+          highlighted++;
+        }
+      }
+      return highlighted;
+    }
+
+    // Convert legacy XLS to a new ExcelJS workbook.
+    // SheetJS Community Edition reads the old format; ExcelJS writes the XLSX result.
+    // Cell formatting from the old XLS format is not transferred.
+    function convertLegacyXlsToExcelJs(sheetJsWorkbook) {
+      const output = new ExcelJS.Workbook();
+      output.creator = "ExcelColumnSwapper";
+      output.created = new Date();
+
+      for (const sheetName of sheetJsWorkbook.SheetNames) {
+        const source = sheetJsWorkbook.Sheets[sheetName];
+        const safeName = sheetName.slice(0, 31) || "Sheet";
+        const target = output.addWorksheet(safeName);
+        if (source["!ref"]) {
+          const range = XLSX.utils.decode_range(source["!ref"]);
+          for (let row = range.s.r; row <= range.e.r; row++) {
+            for (let col = range.s.c; col <= range.e.c; col++) {
+              const address = XLSX.utils.encode_cell({ r: row, c: col });
+              const sourceCell = source[address];
+              if (!sourceCell) continue;
+              const targetCell = target.getCell(row + 1, col + 1);
+
+              if (sourceCell.f) {
+                targetCell.value = { formula: sourceCell.f, result: sourceCell.v };
+              } else if (sourceCell.l && sourceCell.l.Target) {
+                targetCell.value = {
+                  text: sourceCell.v === undefined ? sourceCell.l.Target : String(sourceCell.v),
+                  hyperlink: sourceCell.l.Target,
+                  tooltip: sourceCell.l.Tooltip
+                };
+              } else if (sourceCell.t === "e") {
+                targetCell.value = sourceCell.v === undefined ? null : String(sourceCell.v);
+              } else {
+                targetCell.value = sourceCell.v === undefined ? null : sourceCell.v;
+              }
+
+              if (sourceCell.z) targetCell.numFmt = sourceCell.z;
+              if (sourceCell.c && sourceCell.c.length) {
+                targetCell.note = sourceCell.c.map(comment => comment.t || "").join("\n");
+              }
+            }
+          }
+
+          if (source["!merges"]) {
+            for (const merge of source["!merges"]) {
+              target.mergeCells(
+                merge.s.r + 1, merge.s.c + 1,
+                merge.e.r + 1, merge.e.c + 1
+              );
+            }
+          }
+        }
+
+        if (source["!cols"]) {
+          source["!cols"].forEach((column, index) => {
+            if (!column) return;
+            const targetColumn = target.getColumn(index + 1);
+            if (column.wpx) targetColumn.width = column.wpx / 7;
+            else if (column.wch) targetColumn.width = column.wch;
+            if (column.hidden) targetColumn.hidden = true;
+          });
+        }
+        if (source["!rows"]) {
+          source["!rows"].forEach((row, index) => {
+            if (row && row.hpt) target.getRow(index + 1).height = row.hpt;
+          });
+        }
+      }
+      return output;
+    }
+
+    function safeOutputName(inputName) {
+      const lastDot = inputName.lastIndexOf(".");
+      const base = lastDot > 0 ? inputName.slice(0, lastDot) : inputName;
+      return `${base}_reordered.xlsx`;
+    }
+
+    function downloadBytes(buffer, filename) {
+      const blob = new Blob([buffer], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1500);
+    }
+
+    async function processWorkbook(file) {
+      const extension = file.name.split(".").pop().toLowerCase();
+      let workbook;
+      let legacyXls = false;
+
+      showStatus("Reading workbook…", "info");
+      await new Promise(resolve => setTimeout(resolve, 30));
+
+      if (extension === "xlsx") {
+        workbook = new ExcelJS.Workbook();
+        const data = await file.arrayBuffer();
+        await workbook.xlsx.load(data);
+      } else {
+        legacyXls = true;
+        const data = await file.arrayBuffer();
+        const parsed = XLSX.read(data, {
+          type: "array", cellDates: true, cellStyles: true,
+          cellNF: true, cellFormula: true
+        });
+        workbook = convertLegacyXlsToExcelJs(parsed);
+      }
+
+      const stats = {
+        sheetsDeleted: 0, sheetsKept: 0, swapped: 0, alreadyCorrect: 0,
+        columnsDeleted: 0, rowsDeleted: 0, highlighted: 0
+      };
+
+      // First remove worksheets that do not contain both required headers.
+      for (const worksheet of [...workbook.worksheets]) {
+        if (!hasRequiredHeaders(worksheet)) {
+          workbook.removeWorksheet(worksheet.id);
+          stats.sheetsDeleted++;
+        }
+      }
+
+      // Apply column removal, then locate the two remaining required columns.
+      for (const worksheet of [...workbook.worksheets]) {
+        stats.columnsDeleted += removePriceAndIndexColumns(worksheet);
+
+        const columns = findHeaderColumns(worksheet);
+        if (columns.quantityCol === null || columns.unitCol === null) {
+          workbook.removeWorksheet(worksheet.id);
+          stats.sheetsDeleted++;
+          continue;
+        }
+
+        if (columns.unitCol < columns.quantityCol) {
+          swapColumns(worksheet, columns.unitCol, columns.quantityCol);
+          stats.swapped++;
+        } else {
+          stats.alreadyCorrect++;
+        }
+        stats.sheetsKept++;
+      }
+
+      if (workbook.worksheets.length === 0) {
+        throw new Error("No worksheets remained. A valid worksheet must have both “Mængde” and “Enhed” in row 1.");
+      }
+
+      for (const worksheet of workbook.worksheets) {
+        stats.rowsDeleted += deleteQualifyingRows(worksheet);
+        removeFillsAndConditionalFormatting(worksheet);
+        stats.highlighted += highlightSpecialRows(worksheet);
+      }
+
+      showStatus("Preparing the cleaned workbook for download…", "info");
+      const output = await workbook.xlsx.writeBuffer();
+      downloadBytes(output, safeOutputName(file.name));
+
+      const summary = [
+        `${stats.sheetsKept} worksheet(s) kept`,
+        `${stats.sheetsDeleted} worksheet(s) deleted`,
+        `${stats.swapped} column pair(s) swapped`,
+        `${stats.alreadyCorrect} worksheet(s) already had the correct column order`,
+        `${stats.columnsDeleted} Pris/Indeks column(s) deleted`,
+        `${stats.rowsDeleted} row(s) deleted`,
+        `${stats.highlighted} row(s) highlighted in bold`
+      ];
+      summaryBox.textContent = summary.join(" · ");
+
+      let message = "Finished! Your cleaned workbook has been downloaded.";
+      if (legacyXls) {
+        message += " This was an older .xls file: it was converted to .xlsx. Some original formatting and advanced Excel features may not be retained.";
+      }
+      showStatus(message, "success");
+    }
+
+    processButton.addEventListener("click", async () => {
+      if (!chosenFile) return;
+      if (!window.ExcelJS || !window.XLSX) {
+        showStatus("A required spreadsheet library did not load. Check your internet connection and reload the page.", "error");
+        return;
+      }
+      processButton.disabled = true;
+      resetButton.disabled = true;
+      try {
+        await processWorkbook(chosenFile);
+      } catch (error) {
+        console.error(error);
+        showStatus(`Could not process this workbook: ${error.message || error}`, "error");
+      } finally {
+        processButton.disabled = !chosenFile;
+        resetButton.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
